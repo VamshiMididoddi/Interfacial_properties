@@ -1,0 +1,68 @@
+# =====================================================
+# Cu-Ni Alloy MD Simulation (units metal)
+# Generates thermochemical data for ML
+# =====================================================
+
+units           metal
+dimension       3
+boundary        p p p
+atom_style      atomic
+
+# ---------------- Atom Definition -------------------
+variable        latparam equal 3.52
+region          box block 0 50 0 10 0 10
+create_box      2 box
+lattice         fcc ${latparam} orient x 1 0 0 orient y 0 1 0 orient z 0 0 1
+create_atoms    1 region box
+
+# Randomly assign 30% Ni
+set type 1 type/fraction 2 0.3 12345
+
+group all type 1 2
+mass 1 63.546  # Cu
+mass 2 58.6934 # Ni
+
+# ---------------- Force Field ----------------------
+pair_style      eam/alloy
+pair_coeff      * * Cu_Ni_Fischer_2018.eam.alloy Cu Ni
+
+# ---------------- Initial Velocities ----------------
+velocity all create 300 12345 mom yes rot yes dist gaussian
+
+# ---------------- Dumps ----------------------------
+# Atomic trajectory for visualization (positions + velocities)
+dump traj all custom 100 dump.trj id type x y z vx vy vz
+
+# ---------------- Thermochemical Variables ----------------
+variable t equal step
+variable T equal temp
+variable P equal press
+variable PE equal pe
+variable KE equal ke
+variable E equal etotal
+variable V equal vol
+
+# CSV output for ML training
+fix out all print 10 "${t} ${T} ${P} ${KE} ${PE} ${E} ${V}" file thermo_output.csv screen no
+
+# Thermo settings
+thermo_style custom step temp press pe ke etotal vol
+thermo 1000
+
+# ---------------- Dynamics ------------------------
+# 1. Short NVE for relaxation
+fix relax all nve
+run 5000
+unfix relax
+
+# 2. NPT thermal equilibration at 300 K and 0 bar
+fix eq all npt temp 300 300 1 iso 0 0 1 drag 1
+run 10000
+unfix eq
+
+# 3. NVE production run for thermochemical data collection
+fix prod all nve
+run 50000
+unfix prod
+
+print "MD simulation complete. Trajectory: dump.trj | Thermo CSV: thermo_output.csv"
